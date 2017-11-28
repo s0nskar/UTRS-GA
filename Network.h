@@ -8,6 +8,7 @@ class Network {
 public:
     string name;
     int N, R=4;
+    int total_demand = 0;
     vector<vector<pair<int, int>>> stations;
     vector<vector<int>> time_matrix;
     vector<vector<int>> demand_matrix;

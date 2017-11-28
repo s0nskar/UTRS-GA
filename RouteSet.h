@@ -8,7 +8,8 @@ using namespace std;
 class RouteSet {
 public:
     vector<shared_ptr<Route>> routes;
-    int TOTFIT = -1;
+    float TOTFIT = -1;
+    float d0, d1, d2, dun, ATT;
 
     bool operator <(const RouteSet& rs) {
         if (TOTFIT < 0 || rs.TOTFIT < 0) {

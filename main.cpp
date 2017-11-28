@@ -6,6 +6,7 @@
 #include <vector>
 #include <queue>
 #include <map>
+#include <set>
 
 #include <plog/Log.h>
 #include <plog/Appenders/ColorConsoleAppender.h>
@@ -19,13 +20,31 @@ static int N;
 static Network city;
 static Generation population;
 
-const int R = 4;
-const int P = 5;
+const int NUM_GEN = 5;
+const int P = 200;
 const int K = 14;
 const int M = 10;
 const int L = 35;
 const int U = 5;
 const int PER_GEN_RETAINED = 20;
+const int m = 5;
+
+const int w1 = 1;
+const int w2 = 1;
+const int w3 = 1;
+
+const int K1 = 10;
+const int b1 = 0.3;
+const float xm = 25;
+
+const int K2 = 10;
+const int b2 = 20;
+const float a = 0.70;
+const float b = 0.25;
+const float c = 0.5;
+
+const int K3 = 10;
+const int b3 = 0.4;
 
 
 const int RETAINED = P * (float)PER_GEN_RETAINED/100;
@@ -48,10 +67,10 @@ bool operator< (const shared_ptr<RouteSet> rs1, const shared_ptr<RouteSet> rs2) 
     return rs1->TOTFIT < rs2->TOTFIT;
 }
 
-int EVAL(shared_ptr<RouteSet> rs) {
+void EVAL(shared_ptr<RouteSet> rs) {
     map<string, vector<bool>> edge_routes;
 
-    for(int route=1;route<=R;route++) {
+    for(int route=1;route<=city.R;route++) {
         shared_ptr<Route> r = rs->routes[route-1];
         for(int station=1;station<r->stations.size();station++) {
             string key1 = to_string(r->stations[station-1]) + "-" + to_string(r->stations[station]);
@@ -61,31 +80,24 @@ int EVAL(shared_ptr<RouteSet> rs) {
                 edge_routes[key1][route] = true;
                 edge_routes[key2][route] = true;
             } else {
-                edge_routes[key1] = vector<bool>(R+1, false);
-                edge_routes[key2] = vector<bool>(R+1, false);
+                edge_routes[key1] = vector<bool>(city.R+1, false);
+                edge_routes[key2] = vector<bool>(city.R+1, false);
                 edge_routes[key1][route] = true;
                 edge_routes[key2][route] = true;
             }
         }
     }
 
-    // for(auto i: edge_routes){
-    //     cout << i.first << '-';
-    //     for(int j=0;j<=R;j++) {
-    //         cout << i.second[j] << ' ';
-    //     }
-    //     cout << endl;
-    // }
 
     vector<vector<int>> time_matrix(N, vector<int>(N, INF));
-    vector<vector<int>> change_matrix(N, vector<int>(N, INF));
+    vector<vector<int>> change_matrix(N, vector<int>(N, 0));
     priority_queue<Edge, vector<Edge>> pq;
 
     for(int i=0;i<N;i++) {
         time_matrix[i][i] = 0;
         change_matrix[i][i] = 0;
 
-        for(int route=1;route<=R;route++)
+        for(int route=1;route<=city.R;route++)
             pq.push(Edge{0, 0, route, i});
 
         while (!pq.empty()) {
@@ -98,7 +110,7 @@ int EVAL(shared_ptr<RouteSet> rs) {
                 if (edge_routes.find(key) == edge_routes.end()) continue;
 
                 vector<bool> temp = edge_routes[key];
-                for(int route=1;route<=R;route++) {
+                for(int route=1;route<=city.R;route++) {
                     if (!temp[route]) continue;
 
                     int distance = time_matrix[i][front.node] + v.second;
@@ -115,19 +127,56 @@ int EVAL(shared_ptr<RouteSet> rs) {
         }
     }
 
-    // for(auto i: time_matrix) {
-    //     for(auto j: i) {
-    //         cout << j << ' ';
-    //     } cout << endl;
-    // }
+    float d0, d1, d2, dun, ATT;
+    d0 = d1 = d2 = dun = ATT = 0;
+
+    float F1 = 0;
 
     for(int i=0;i<N;i++) {
         for(int j=0;j<N;j++) {
-            
+            if (time_matrix[i][j] == INF or change_matrix[i][j] > 2) {
+                dun += city.demand_matrix[i][j];
+                continue;
+            }
+            if (change_matrix[i][j] == 0) {
+                d0 += city.demand_matrix[i][j];
+            } else if (change_matrix[i][j] == 1) {
+                d1 += city.demand_matrix[i][j];
+            } else if (change_matrix[i][j] == 2) {
+                d2 += city.demand_matrix[i][j];
+            }
+
+            ATT += time_matrix[i][j]*city.demand_matrix[i][j];
+
+            int x = time_matrix[i][j] - city.time_matrix[i][j];
+            float f = (x < xm) ? - (K1 - b1)*(x/xm)*(x/xm) - b1*(x/xm) + K1 : 0;
+
+            F1 += city.demand_matrix[i][j]*f;
         }
     }
 
-    return 0;
+    F1 = F1/city.total_demand;
+
+    d0 = d0/city.total_demand;
+    d1 = d1/city.total_demand;
+    d2 = d2/city.total_demand;
+    dun = dun/city.total_demand;
+    ATT = ATT/city.total_demand;
+
+    rs->d0 = d0;
+    rs->d1 = d1;
+    rs->d2 = d2;
+    rs->dun = dun;
+    rs->ATT = ATT;
+
+    // cout << d0 << ' ' << d1 << ' ' << d2 << ' ' << dun << ' ';
+
+    float dt = a*d0 + b*d1 + c*d2;
+    float F2 = ((K2 - b2*a)/(a*a))*dt*dt + b2*dt;
+
+    float F3 = - (K3 - b3)*dun*dun - b3*dun + K3;
+
+    rs->TOTFIT = w1*F1 + w2*F2 + w3*F3;
 }
 
 
@@ -198,12 +247,10 @@ void IRSG() {
                 r->add_station(cur_node);
             }
 
-            // for(auto i: r->stations) cout << i << ' ';
-            // cout << endl;
             rs->add_route(r);
         }
-        // cout << endl;
-        rs->EVAL();
+
+        EVAL(rs);
         population.add_member(rs);
     }
 
@@ -211,17 +258,16 @@ void IRSG() {
 }
 
 void interCrossover(shared_ptr<RouteSet> rs1, shared_ptr<RouteSet> rs2) {
-    int num_iteration = rand()%R;
+    int num_iteration = rand()%city.R;
 
-    for(int i=0;i<num_iteration;i++) {
-        int m = rand()%R, n = rand()%R;
-        swap(rs1->routes[m], rs2->routes[n]);
+    if (rand()%2) {
+        for(int i=0;i<num_iteration;i++) {
+            int m = rand()%city.R, n = rand()%city.R;
+            swap(rs1->routes[m], rs2->routes[n]);
+        }
     }
 }
 
-void intraCrossover(shared_ptr<RouteSet> rs) {
-    //TODO
-}
 
 void crossover(Generation& population) {
     vector<shared_ptr<RouteSet>> temp_route_sets;
@@ -235,36 +281,94 @@ void crossover(Generation& population) {
         shared_ptr<RouteSet> rs2 = make_shared<RouteSet>(population.route_sets[n]);
 
         interCrossover(rs1, rs2);
-        rs1->EVAL(); rs2->EVAL();
+        EVAL(rs1); EVAL(rs2);
         temp_route_sets.push_back(rs1);
         temp_route_sets.push_back(rs2);
     }
 
-    for(auto route_set: temp_route_sets) {
-        route_set->print();
-    }
-    cout << endl;
-
-    // //Intra Crossover
-    // num_iteration = rand()%P;
-
-    // for(int i=0;i<num_iteration;i++) {
-    //     intraCrossover(population->route_sets[rand()%P]);
-    // }
-
     sort(population.route_sets.rbegin(), population.route_sets.rend());
     sort(temp_route_sets.rbegin(), temp_route_sets.rend());
 
-    // cout << RETAINED << endl;
     copy(temp_route_sets.begin(), temp_route_sets.begin()+P-RETAINED, population.route_sets.begin()+RETAINED);
 }
 
-void mutation(Generation& population) {
+void mutation(shared_ptr<RouteSet> rs) {
+    shared_ptr<Route> r = make_shared<Route>();
+    vector<bool> bset(N, false);
+    int num_nodes = 1, len_route = 0;
 
+    int cur_node = rand()%N;
+
+    r->add_station(cur_node);
+    bset[cur_node] = true;
+
+    int tries = 0, VNS = (int)city.stations[cur_node].size();
+    while (tries < 2*VNS) {
+        pair<int, int> next_node = city.stations[cur_node][rand()%VNS];
+        if (bset[next_node.first]) {
+            tries++; continue;
+        }
+
+        if (num_nodes + 1 > M or len_route + next_node.second > L) break;
+
+        cur_node = next_node.first;
+        tries = 0;
+        VNS = (int)city.stations[cur_node].size();
+        bset[cur_node] = true;
+        num_nodes++;
+        len_route += next_node.second;
+        r->add_station(cur_node);
+    }
+    rs->routes[rand()%city.R] = r;
+    EVAL(rs);
 }
 
 void selection(Generation& population) {
+    vector<shared_ptr<RouteSet>> new_population, sel_population;
+    new_population.resize(P*m);
+    for(int i=0;i<m;i++) {
+        copy(population.route_sets.begin(), population.route_sets.end(), new_population.begin()+i*P);
+    }
 
+    int rnd = rand()%P;
+    while(rnd--) {
+        int x = rand()%(P*m);
+        mutation(new_population[x]);
+    }
+
+    random_shuffle(new_population.begin(), new_population.end());
+
+    int max_index = -1;
+    int sec_max_index = -1;
+    int max_value = 0;
+    int sec_max_value = 0;
+
+    for(int i=0;i<P*m;i++) {
+        if (i%(2*m) == 0) {
+            if (i != 0) {
+                sel_population.push_back(new_population[max_index]);
+                sel_population.push_back(new_population[sec_max_index]);
+            }
+            max_index = sec_max_index = i;
+            max_value = sec_max_value = new_population[i]->TOTFIT;
+            continue;
+        }
+
+        if (new_population[i]->TOTFIT >= max_value) {
+            sec_max_index = max_index;
+            sec_max_value = max_value;
+            max_value = new_population[i]->TOTFIT;
+            max_index = i;
+        }
+        else if (new_population[i]->TOTFIT > sec_max_value) {
+            sec_max_index = i;
+            sec_max_value = new_population[i]->TOTFIT;
+        }
+    }
+    sel_population.push_back(new_population[max_index]);
+    if (P%2 == 0) sel_population.push_back(new_population[sec_max_index]);
+
+    copy(sel_population.begin(), sel_population.end(), population.route_sets.begin());
 }
 
 
@@ -272,7 +376,6 @@ void MODIFY(Generation& population) {
     LOGV << "Modifying Generation " << population.level;
 
     crossover(population);
-    mutation(population);
     selection(population);
 
     population.level++;
@@ -320,25 +423,32 @@ int main() {
 
     LOGV << "Filling demand data";
     for(int i=0;i<N;i++)
-        for(int j=0;j<N;j++)
+        for(int j=0;j<N;j++) {
             demandFile >> city.demand_matrix[i][j];
+            city.total_demand += city.demand_matrix[i][j];
+        }
     LOGV << "Done";
 
-    for(auto i: city.time_matrix) {
-        for(auto j: i) {
-            cout << j << ' ';
-        } cout << endl;
-    }
+
     IRSG();
-    population.print();
+    // population.print();
 
-    EVAL(population.route_sets[0]);
+    for(int i=0;i<NUM_GEN;i++) {
+        MODIFY(population);
+        // population.print();
+    }
 
-    // int m = 2;
-    // while (m--) {
-    //     MODIFY(population);
-    //     population.print();
-    // }
+    // population.print();
+
+    sort(population.route_sets.rbegin(), population.route_sets.rend());
+
+    shared_ptr<RouteSet> best_rs = population.route_sets[0];
+    best_rs->print();
+    cout << "d0: " << best_rs->d0 << endl;
+    cout << "d1: " << best_rs->d1 << endl;
+    cout << "d2: " << best_rs->d2 << endl;
+    cout << "dun: " << best_rs->dun << endl;
+    cout << "ATT: " << best_rs->ATT << endl;
 
     LOGV << "Program completed successfully";
 }
